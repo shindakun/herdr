@@ -205,7 +205,7 @@ pub(super) enum ClientChromeDrag {
     Tab {
         tab_id: String,
         workspace_id: String,
-        insert_index: Option<usize>,
+        target: Option<ClientTabDropTarget>,
     },
     Workspace {
         source_workspace_id: String,
@@ -525,6 +525,15 @@ pub(super) enum ClientContextMenuAction {
     ClosePane,
     MoveTabToNewSpace,
     MovePaneToNewSpace,
+}
+
+/// Where a dragged tab would land: another slot in its own tab bar, another
+/// space's sidebar row, or the new-space affordance under that list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum ClientTabDropTarget {
+    Reorder(usize),
+    Space(String),
+    NewSpace,
 }
 
 #[derive(Debug)]

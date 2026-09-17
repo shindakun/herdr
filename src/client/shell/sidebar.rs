@@ -298,7 +298,8 @@ pub(crate) fn render_sidebar(
             target.matches(state.active_endpoint_id, &workspace.workspace_id)
         });
         let dragged = state.dragged_workspace_id == Some(workspace.workspace_id.as_str());
-        if selected {
+        let tab_drop = state.tab_drop_space_id == Some(workspace.workspace_id.as_str());
+        if tab_drop || selected {
             buffer.set_style(rect, Style::default().bg(palette.selection_bg));
         } else if dragged {
             buffer.set_style(rect, Style::default().bg(palette.surface1));
@@ -373,7 +374,13 @@ pub(crate) fn render_sidebar(
             footer_y,
             workspace_area.width,
             " new",
-            Style::default().fg(palette.overlay0),
+            if state.tab_drop_new_space {
+                Style::default()
+                    .fg(palette.accent)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(palette.overlay0)
+            },
         );
         let attention = super::super::global_menu::global_menu_attention(snapshot);
         let launcher_width = if attention { 8 } else { 6 }.min(workspace_area.width);

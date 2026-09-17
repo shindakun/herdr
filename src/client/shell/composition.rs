@@ -69,6 +69,8 @@ impl ClientShellState {
             reveal_navigation_workspace: &mut self.reveal_navigation_workspace,
             dragged_workspace_id: None,
             workspace_drop_indicator_row: None,
+            tab_drop_space_id: None,
+            tab_drop_new_space: false,
         };
         if let Some(snapshot) = local_snapshot {
             render::render_sidebar(
@@ -163,9 +165,17 @@ impl ClientShellState {
             self.last_tab_bar_width = Some(layout.tab_bar.width);
             self.reveal_focused_tab = true;
         }
-        let tab_drag_insert_index = match &self.chrome_drag {
-            Some(ClientChromeDrag::Tab { insert_index, .. }) => *insert_index,
-            _ => None,
+        let (tab_drag_insert_index, tab_drop_space_id, tab_drop_new_space) = match &self.chrome_drag
+        {
+            Some(ClientChromeDrag::Tab { target, .. }) => match target {
+                Some(ClientTabDropTarget::Reorder(index)) => (Some(*index), None, false),
+                Some(ClientTabDropTarget::Space(workspace_id)) => {
+                    (None, Some(workspace_id.as_str()), false)
+                }
+                Some(ClientTabDropTarget::NewSpace) => (None, None, true),
+                None => (None, None, false),
+            },
+            _ => (None, None, false),
         };
         let (dragged_workspace_id, workspace_drop_indicator_row) = match &self.chrome_drag {
             Some(ClientChromeDrag::Workspace {
@@ -204,6 +214,8 @@ impl ClientShellState {
                 reveal_navigation_workspace: &mut self.reveal_navigation_workspace,
                 dragged_workspace_id,
                 workspace_drop_indicator_row,
+                tab_drop_space_id,
+                tab_drop_new_space,
             },
         );
         self.hits.panes = surface

@@ -247,6 +247,9 @@ pub(super) struct ShellRenderState<'a> {
     pub(super) reveal_navigation_workspace: &'a mut bool,
     pub(super) dragged_workspace_id: Option<&'a str>,
     pub(super) workspace_drop_indicator_row: Option<u16>,
+    /// Space row a dragged tab would land on, and whether it would land on `new`.
+    pub(super) tab_drop_space_id: Option<&'a str>,
+    pub(super) tab_drop_new_space: bool,
 }
 
 pub(super) fn render_shell(

@@ -992,7 +992,7 @@ fn tab_click_waits_for_release_and_drag_reorders_by_stable_id() {
         state.chrome_drag,
         Some(ClientChromeDrag::Tab {
             ref tab_id,
-            insert_index: Some(3),
+            target: Some(ClientTabDropTarget::Reorder(3)),
             ..
         }) if tab_id == "tab_1"
     ));
@@ -1077,10 +1077,7 @@ fn tab_drag_clears_its_drop_target_after_leaving_the_tab_row() {
     })]);
     assert!(matches!(
         state.chrome_drag,
-        Some(ClientChromeDrag::Tab {
-            insert_index: None,
-            ..
-        })
+        Some(ClientChromeDrag::Tab { target: None, .. })
     ));
     let release =
         state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
@@ -1158,4 +1155,163 @@ fn context_menu_keyboard_and_outside_click_are_client_owned() {
         })]);
     assert!(outside.repaint);
     assert!(state.overlay.is_none());
+}
+
+fn snapshot_with_second_tab_and_space() -> ClientShellSnapshot {
+    let mut projected = snapshot();
+    let mut tab = projected.tabs[0].clone();
+    tab.tab_id = "tab_2".into();
+    tab.number = 2;
+    tab.label = "2".into();
+    tab.focused = false;
+    projected.tabs.push(tab);
+    let mut workspace = projected.workspaces[0].clone();
+    workspace.workspace_id = "ws_2".into();
+    workspace.active_tab_id = "tab_3".into();
+    workspace.number = 2;
+    workspace.label = "other".into();
+    workspace.focused = false;
+    projected.workspaces.push(workspace);
+    let mut other_tab = projected.tabs[0].clone();
+    other_tab.tab_id = "tab_3".into();
+    other_tab.workspace_id = "ws_2".into();
+    other_tab.number = 1;
+    other_tab.focused = false;
+    projected.tabs.push(other_tab);
+    projected
+}
+
+fn drag_tab_to(state: &mut ClientShellState, point: (u16, u16)) -> ClientShellInput {
+    let tab = state.hits.tabs[0].0;
+    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: tab.x + 1,
+        row: tab.y,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+        kind: MouseEventKind::Drag(MouseButton::Left),
+        column: point.0,
+        row: point.1,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: point.0,
+        row: point.1,
+        modifiers: KeyModifiers::empty(),
+    })])
+}
+
+#[test]
+fn dragging_a_tab_onto_another_space_row_moves_it_there() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot_with_second_tab_and_space()));
+    state.set_pane_surface(surface());
+    state.compose(106, 20).expect("two spaces");
+    let other = state.hits.workspaces[1].rect;
+
+    let release = drag_tab_to(&mut state, (other.x + 1, other.y));
+
+    let [ClientShellAction::Endpoint { request, .. }] = &release.actions[..] else {
+        panic!("tab drop should use the endpoint API");
+    };
+    assert!(matches!(
+        &request.method,
+        crate::api::schema::Method::TabMoveToWorkspace(params)
+            if params.tab_id == "tab_1"
+                && params.focus
+                && params.destination == crate::api::schema::TabMoveDestination::Workspace {
+                    workspace_id: "ws_2".into(),
+                }
+    ));
+}
+
+#[test]
+fn dragging_a_tab_onto_new_promotes_it_into_its_own_space() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot_with_second_tab_and_space()));
+    state.set_pane_surface(surface());
+    state.compose(106, 20).expect("two spaces");
+    let new_space = state.hits.new_workspace;
+
+    let tab = state.hits.tabs[0].0;
+    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: tab.x + 1,
+        row: tab.y,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+        kind: MouseEventKind::Drag(MouseButton::Left),
+        column: new_space.x,
+        row: new_space.y,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    assert!(matches!(
+        state.chrome_drag,
+        Some(ClientChromeDrag::Tab {
+            target: Some(ClientTabDropTarget::NewSpace),
+            ..
+        })
+    ));
+    let frame = state.compose(106, 20).expect("new space drop hint");
+    let footer = frame
+        .cells
+        .chunks(frame.width as usize)
+        .nth(new_space.y as usize)
+        .expect("footer row");
+    assert_ne!(
+        footer[new_space.x as usize + 1].modifier & ratatui::style::Modifier::BOLD.bits(),
+        0
+    );
+
+    let release =
+        state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: new_space.x,
+            row: new_space.y,
+            modifiers: KeyModifiers::empty(),
+        })]);
+    let [ClientShellAction::Endpoint { request, .. }] = &release.actions[..] else {
+        panic!("tab drop should use the endpoint API");
+    };
+    assert!(matches!(
+        &request.method,
+        crate::api::schema::Method::TabMoveToWorkspace(params)
+            if params.destination
+                == crate::api::schema::TabMoveDestination::NewWorkspace { label: None }
+    ));
+}
+
+#[test]
+fn tabs_do_not_drop_onto_their_own_space_or_an_older_server() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot_with_second_tab_and_space()));
+    state.set_pane_surface(surface());
+    state.compose(106, 20).expect("two spaces");
+    let own = state.hits.workspaces[0].rect;
+
+    // Releasing without a drop target stays a plain tab click, which focuses the tab.
+    let release = drag_tab_to(&mut state, (own.x + 1, own.y));
+    assert!(!moved_a_tab(&release));
+
+    state.set_endpoint_methods(Some(vec!["tab.move".into(), "tab.focus".into()]));
+    state.compose(106, 20).expect("two spaces");
+    let other = state.hits.workspaces[1].rect;
+    let release = drag_tab_to(&mut state, (other.x + 1, other.y));
+    assert!(!moved_a_tab(&release));
+}
+
+fn moved_a_tab(outcome: &ClientShellInput) -> bool {
+    outcome.actions.iter().any(|action| {
+        matches!(
+            action,
+            ClientShellAction::Endpoint { request, .. }
+                if matches!(
+                    request.method,
+                    crate::api::schema::Method::TabMoveToWorkspace(_)
+                )
+        )
+    })
 }

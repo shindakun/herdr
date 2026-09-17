@@ -508,6 +508,79 @@ impl ClientShellState {
         Some(last_index + 1)
     }
 
+    fn tab_drop_method(
+        &self,
+        tab_id: String,
+        workspace_id: &str,
+        target: Option<ClientTabDropTarget>,
+    ) -> Option<crate::api::schema::Method> {
+        use crate::api::schema::{
+            Method, TabMoveDestination, TabMoveParams, TabMoveToWorkspaceParams,
+        };
+
+        let move_to = |destination| {
+            Method::TabMoveToWorkspace(TabMoveToWorkspaceParams {
+                tab_id: tab_id.clone(),
+                destination,
+                focus: true,
+            })
+        };
+        match target? {
+            ClientTabDropTarget::Reorder(insert_index) => {
+                let tab_count = self.snapshot.as_deref().map(|snapshot| {
+                    snapshot
+                        .tabs
+                        .iter()
+                        .filter(|tab| tab.workspace_id == workspace_id)
+                        .count()
+                })?;
+                (insert_index <= tab_count).then(|| {
+                    Method::TabMove(TabMoveParams {
+                        tab_id: tab_id.clone(),
+                        insert_index,
+                    })
+                })
+            }
+            ClientTabDropTarget::Space(target_workspace_id) => {
+                Some(move_to(TabMoveDestination::Workspace {
+                    workspace_id: target_workspace_id,
+                }))
+            }
+            ClientTabDropTarget::NewSpace => {
+                Some(move_to(TabMoveDestination::NewWorkspace { label: None }))
+            }
+        }
+    }
+
+    /// Resolve where a dragged tab would land. Rows for the tab's own space are not
+    /// targets, because moving a tab onto the space it already belongs to does nothing.
+    fn tab_drop_target_at(
+        &self,
+        point: (u16, u16),
+        source_workspace_id: &str,
+    ) -> Option<ClientTabDropTarget> {
+        if let Some(index) = self.tab_drop_index_at(point) {
+            return Some(ClientTabDropTarget::Reorder(index));
+        }
+        if !self.supports_endpoint_method_name("tab.move_to_workspace")
+            || self.focused_tab_count() <= 1
+        {
+            return None;
+        }
+        if super::contains(self.hits.new_workspace, point) {
+            return Some(ClientTabDropTarget::NewSpace);
+        }
+        self.hits
+            .workspaces
+            .iter()
+            .find(|hit| {
+                hit.endpoint_id == self.active_endpoint_id
+                    && hit.workspace_id != source_workspace_id
+                    && super::contains(hit.rect, point)
+            })
+            .map(|hit| ClientTabDropTarget::Space(hit.workspace_id.clone()))
+    }
+
     fn workspace_drop_target_at(&self, point: (u16, u16)) -> Option<(Option<String>, u16)> {
         if self.hits.workspace_body.height == 0
             || point.1 < self.hits.workspace_body.y.saturating_sub(1)
@@ -1146,14 +1219,13 @@ impl ClientShellState {
                     }
                     return;
                 }
-                Some(ClientChromeDrag::Tab { .. }) => {
-                    let insert_index = self.tab_drop_index_at(point);
+                Some(ClientChromeDrag::Tab { workspace_id, .. }) => {
+                    let target = self.tab_drop_target_at(point, &workspace_id.clone());
                     if let Some(ClientChromeDrag::Tab {
-                        insert_index: current,
-                        ..
+                        target: current, ..
                     }) = self.chrome_drag.as_mut()
                     {
-                        *current = insert_index;
+                        *current = target;
                     }
                     outcome.repaint = true;
                     return;
@@ -1197,11 +1269,11 @@ impl ClientShellState {
                     .abs_diff(press.start_column)
                     .max(mouse.row.abs_diff(press.start_row));
                 if delta >= 1 {
-                    if let Some(insert_index) = self.tab_drop_index_at(point) {
+                    if let Some(target) = self.tab_drop_target_at(point, &press.workspace_id) {
                         self.chrome_drag = Some(ClientChromeDrag::Tab {
                             tab_id: press.tab_id.clone(),
                             workspace_id: press.workspace_id.clone(),
-                            insert_index: Some(insert_index),
+                            target: Some(target),
                         });
                         outcome.repaint = true;
                     }
@@ -1219,31 +1291,18 @@ impl ClientShellState {
                         workspace_id,
                         ..
                     } => {
-                        let insert_index = self.tab_drop_index_at(point);
-                        let valid_drop = self.snapshot.as_deref().is_some_and(|snapshot| {
+                        let target = self.tab_drop_target_at(point, &workspace_id);
+                        let tab_is_live = self.snapshot.as_deref().is_some_and(|snapshot| {
                             snapshot.focused_workspace_id.as_deref() == Some(workspace_id.as_str())
                                 && snapshot.tabs.iter().any(|tab| {
                                     tab.tab_id == tab_id && tab.workspace_id == workspace_id
                                 })
-                                && insert_index.is_some_and(|index| {
-                                    index
-                                        <= snapshot
-                                            .tabs
-                                            .iter()
-                                            .filter(|tab| tab.workspace_id == workspace_id)
-                                            .count()
-                                })
                         });
-                        if valid_drop {
-                            self.push_endpoint_method(
-                                crate::api::schema::Method::TabMove(
-                                    crate::api::schema::TabMoveParams {
-                                        tab_id,
-                                        insert_index: insert_index.unwrap_or_default(),
-                                    },
-                                ),
-                                outcome,
-                            );
+                        if let Some(method) = tab_is_live
+                            .then(|| self.tab_drop_method(tab_id, &workspace_id, target))
+                            .flatten()
+                        {
+                            self.push_endpoint_method(method, outcome);
                         }
                         outcome.repaint = true;
                     }
