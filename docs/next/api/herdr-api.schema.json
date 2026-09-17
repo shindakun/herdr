@@ -4380,6 +4380,44 @@
           },
           "type": "object"
         },
+        "TabMoveDestination": {
+          "oneOf": [
+            {
+              "properties": {
+                "type": {
+                  "const": "workspace",
+                  "type": "string"
+                },
+                "workspace_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "workspace_id"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "label": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "const": "new_workspace",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            }
+          ]
+        },
         "TabMoveParams": {
           "properties": {
             "insert_index": {
@@ -4394,6 +4432,25 @@
           "required": [
             "tab_id",
             "insert_index"
+          ],
+          "type": "object"
+        },
+        "TabMoveToWorkspaceParams": {
+          "properties": {
+            "destination": {
+              "$ref": "#/schemas/request/$defs/TabMoveDestination"
+            },
+            "focus": {
+              "default": false,
+              "type": "boolean"
+            },
+            "tab_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "tab_id",
+            "destination"
           ],
           "type": "object"
         },
@@ -5267,6 +5324,22 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/TabMoveParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "tab.move_to_workspace",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/TabMoveToWorkspaceParams"
             }
           },
           "required": [
@@ -9506,6 +9579,22 @@
             },
             {
               "properties": {
+                "move_result": {
+                  "$ref": "#/schemas/success_response/$defs/TabMoveToWorkspaceResult"
+                },
+                "type": {
+                  "const": "tab_moved_to_workspace",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "move_result"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
                 "agent": {
                   "$ref": "#/schemas/success_response/$defs/AgentInfo"
                 },
@@ -10734,6 +10823,76 @@
             "focused",
             "pane_count",
             "agent_status"
+          ],
+          "type": "object"
+        },
+        "TabMoveToWorkspaceReason": {
+          "oneOf": [
+            {
+              "const": "only_tab",
+              "description": "The tab is the only tab in its workspace, so moving it would empty that workspace.",
+              "type": "string"
+            },
+            {
+              "const": "same_workspace",
+              "description": "The destination workspace already owns the tab.",
+              "type": "string"
+            }
+          ]
+        },
+        "TabMoveToWorkspaceResult": {
+          "properties": {
+            "changed": {
+              "type": "boolean"
+            },
+            "closed_workspace_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "created_workspace": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/WorkspaceInfo"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "panes": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/PaneInfo"
+              },
+              "type": "array"
+            },
+            "previous_tab_id": {
+              "type": "string"
+            },
+            "previous_workspace_id": {
+              "type": "string"
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/TabMoveToWorkspaceReason"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "tab": {
+              "$ref": "#/schemas/success_response/$defs/TabInfo"
+            }
+          },
+          "required": [
+            "changed",
+            "previous_workspace_id",
+            "previous_tab_id",
+            "tab",
+            "panes"
           ],
           "type": "object"
         },

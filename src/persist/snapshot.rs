@@ -594,6 +594,44 @@ mod tests {
     }
 
     #[test]
+    fn promoted_tab_survives_a_capture_round_trip() {
+        let mut state = state_with_workspaces(&["source"]);
+        state.workspaces[0].test_add_tab(Some("side"));
+        state.workspaces[0].switch_tab(1);
+        state.workspaces[0].test_split(Direction::Horizontal);
+        state.workspaces[0].switch_tab(0);
+        state.ensure_test_terminals();
+        let moved_panes = state.workspaces[0].tabs[1].layout.pane_ids();
+        let taken = state.workspaces[0]
+            .take_tab_for_move(1)
+            .expect("tab detaches");
+        state.workspaces.push(Workspace::from_existing_tab(
+            Some("promoted".into()),
+            PathBuf::from("/repo"),
+            taken,
+        ));
+
+        let json = serde_json::to_string(&capture_from_state(&state)).unwrap();
+        let restored = parse_snapshot(&json).unwrap();
+
+        assert_eq!(restored.workspaces.len(), 2);
+        assert_eq!(restored.workspaces[0].tabs.len(), 1);
+        let promoted = &restored.workspaces[1];
+        assert_eq!(promoted.custom_name.as_deref(), Some("promoted"));
+        assert_eq!(promoted.tabs.len(), 1);
+        assert_eq!(promoted.tabs[0].custom_name.as_deref(), Some("side"));
+        assert_eq!(promoted.tabs[0].panes.len(), 2);
+        assert_eq!(promoted.public_tab_numbers, vec![1]);
+        assert_eq!(promoted.next_public_pane_number, 3);
+        let mut numbers = moved_panes
+            .iter()
+            .map(|pane_id| promoted.public_pane_numbers[&pane_id.raw()])
+            .collect::<Vec<_>>();
+        numbers.sort();
+        assert_eq!(numbers, vec![1, 2]);
+    }
+
+    #[test]
     fn round_trip_empty_session() {
         let snap = SessionSnapshot {
             version: SNAPSHOT_VERSION,

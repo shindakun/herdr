@@ -523,6 +523,8 @@ pub(super) enum ClientContextMenuAction {
     Zoom,
     ToggleRightClickPassthrough,
     ClosePane,
+    MoveTabToNewSpace,
+    MovePaneToNewSpace,
 }
 
 #[derive(Debug)]
@@ -537,6 +539,7 @@ pub(super) enum ClientContextMenuTarget {
     Tab {
         tab_id: String,
         workspace_id: String,
+        can_move_to_new_space: bool,
     },
     Pane {
         pane_id: String,
@@ -544,6 +547,7 @@ pub(super) enum ClientContextMenuTarget {
         source_pane_id: Option<String>,
         has_manual_label: bool,
         right_click_passthrough: bool,
+        can_move_to_new_space: bool,
     },
 }
 

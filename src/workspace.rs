@@ -272,6 +272,46 @@ impl Workspace {
         }
     }
 
+    pub(crate) fn from_existing_tab(
+        label: Option<String>,
+        identity_cwd: PathBuf,
+        taken: TakenTab,
+    ) -> Self {
+        let mut tab = taken.tab;
+        let pane_ids = taken.pane_ids;
+        #[cfg(test)]
+        let runtimes = taken.runtimes;
+        tab.number = 1;
+        let public_pane_numbers = pane_ids
+            .iter()
+            .enumerate()
+            .map(|(index, pane_id)| (*pane_id, index + 1))
+            .collect::<HashMap<_, _>>();
+        let (cached_git_space, cached_auto_label, cached_git_status_key) =
+            discover_workspace_git_identity(&identity_cwd);
+        Self {
+            id: generate_workspace_id(),
+            custom_name: label,
+            identity_cwd: identity_cwd.clone(),
+            cached_identity_cwd: identity_cwd.clone(),
+            cached_auto_label,
+            cached_git_status_key,
+            cached_git_branch: git_branch(&identity_cwd),
+            cached_git_ahead_behind: None,
+            cached_git_space,
+            worktree_space: None,
+            metadata_tokens: crate::metadata_tokens::MetadataTokens::default(),
+            metadata_token_sequences: HashMap::new(),
+            next_public_pane_number: public_pane_numbers.len() + 1,
+            public_pane_numbers,
+            next_public_tab_number: 2,
+            tabs: vec![tab],
+            active_tab: 0,
+            #[cfg(test)]
+            test_runtimes: runtimes,
+        }
+    }
+
     pub fn new(
         initial_cwd: PathBuf,
         rows: u16,
@@ -968,6 +1008,49 @@ impl Workspace {
         self.tabs.len() - 1
     }
 
+    /// Detach a tab and its panes without terminating their runtimes.
+    /// Returns None when the tab is the only tab, because the workspace would be left empty.
+    pub(crate) fn take_tab_for_move(&mut self, tab_idx: usize) -> Option<TakenTab> {
+        if self.tabs.len() <= 1 || tab_idx >= self.tabs.len() {
+            return None;
+        }
+        let tab = self.tabs.remove(tab_idx);
+        let pane_ids = tab.layout.pane_ids();
+        for pane_id in &pane_ids {
+            self.unregister_pane(*pane_id);
+        }
+        #[cfg(test)]
+        let runtimes = pane_ids
+            .iter()
+            .filter_map(|pane_id| {
+                self.test_runtimes
+                    .remove(pane_id)
+                    .map(|runtime| (*pane_id, runtime))
+            })
+            .collect();
+        self.adjust_active_tab_after_removal(tab_idx);
+        Some(TakenTab {
+            tab,
+            pane_ids,
+            #[cfg(test)]
+            runtimes,
+        })
+    }
+
+    /// Adopt a detached tab, giving it and its panes public numbers from this workspace.
+    pub(crate) fn insert_moved_tab(&mut self, taken: TakenTab) -> usize {
+        let mut tab = taken.tab;
+        tab.number = self.next_public_tab_number;
+        self.next_public_tab_number += 1;
+        for pane_id in &taken.pane_ids {
+            self.register_new_pane_with_number(*pane_id, self.next_public_pane_number);
+        }
+        #[cfg(test)]
+        self.test_runtimes.extend(taken.runtimes);
+        self.tabs.push(tab);
+        self.tabs.len() - 1
+    }
+
     pub(crate) fn unregister_moved_pane(&mut self, pane_id: PaneId) {
         self.unregister_pane(pane_id);
     }
@@ -1157,6 +1240,14 @@ impl Workspace {
         self.close_active_tab();
         false
     }
+}
+
+pub(crate) struct TakenTab {
+    pub tab: Tab,
+    /// Panes in layout order, so the destination can number them predictably.
+    pub pane_ids: Vec<PaneId>,
+    #[cfg(test)]
+    pub runtimes: HashMap<PaneId, TerminalRuntime>,
 }
 
 pub(crate) struct TakenPane {

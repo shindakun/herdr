@@ -293,6 +293,16 @@ fn tab_command() -> Command {
                 .arg(required("tab_id", "TAB_ID"))
                 .arg(required("label", "LABEL").num_args(1..)),
         )
+        .subcommand(
+            Command::new("move-to-space")
+                .about("Move a tab into another space, or into a new one")
+                .arg(required("tab_id", "TAB_ID"))
+                .arg(flag("new-space"))
+                .arg(option("space", "WORKSPACE_ID"))
+                .arg(option("label", "TEXT"))
+                .arg(flag("focus"))
+                .arg(flag("no-focus")),
+        )
         .subcommand(id_command("close", "tab_id", "Close a tab"))
 }
 

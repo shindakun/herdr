@@ -41,15 +41,25 @@ impl ClientContextMenuOverlay {
                     Action::ToggleGroup,
                 ),
             ],
-            ClientContextMenuTarget::Tab { .. } => vec![
-                item("New tab", Action::NewTab),
-                item("Rename", Action::Rename),
-                item("Close", Action::Close),
-            ],
+            ClientContextMenuTarget::Tab {
+                can_move_to_new_space,
+                ..
+            } => {
+                let mut items = vec![
+                    item("New tab", Action::NewTab),
+                    item("Rename", Action::Rename),
+                ];
+                if *can_move_to_new_space {
+                    items.push(item("Move to new space", Action::MoveTabToNewSpace));
+                }
+                items.push(item("Close", Action::Close));
+                items
+            }
             ClientContextMenuTarget::Pane {
                 source_pane_id,
                 has_manual_label,
                 right_click_passthrough,
+                can_move_to_new_space,
                 ..
             } => {
                 let mut items = vec![item("Rename pane", Action::RenamePane)];
@@ -63,6 +73,11 @@ impl ClientContextMenuOverlay {
                     item("Split right", Action::SplitRight),
                     item("Split down", Action::SplitDown),
                     item("Zoom", Action::Zoom),
+                ]);
+                if *can_move_to_new_space {
+                    items.push(item("Move pane to new space", Action::MovePaneToNewSpace));
+                }
+                items.extend([
                     item(
                         if *right_click_passthrough {
                             "Use Herdr right-click menu"
@@ -124,17 +139,26 @@ impl ClientShellState {
     }
 
     pub(super) fn open_tab_context_menu(&mut self, tab_id: String, x: u16, y: u16) {
-        let Some(tab) = self
-            .snapshot
-            .as_deref()
-            .and_then(|snapshot| snapshot.tabs.iter().find(|tab| tab.tab_id == tab_id))
-        else {
+        let Some(snapshot) = self.snapshot.as_deref() else {
             return;
         };
+        let Some(tab) = snapshot.tabs.iter().find(|tab| tab.tab_id == tab_id) else {
+            return;
+        };
+        let workspace_id = tab.workspace_id.clone();
+        // Promoting the only tab would empty its space, so the server refuses it.
+        let can_move_to_new_space = snapshot
+            .tabs
+            .iter()
+            .filter(|tab| tab.workspace_id == workspace_id)
+            .count()
+            > 1
+            && self.supports_endpoint_method_name("tab.move_to_workspace");
         self.overlay = Some(ClientShellOverlay::ContextMenu(ClientContextMenuOverlay {
             target: ClientContextMenuTarget::Tab {
                 tab_id,
-                workspace_id: tab.workspace_id.clone(),
+                workspace_id,
+                can_move_to_new_space,
             },
             x,
             y,
@@ -153,13 +177,23 @@ impl ClientShellState {
             .focused_pane_id
             .clone()
             .filter(|focused| focused != &pane_id);
+        let workspace_id = pane.workspace_id.clone();
+        // Moving the only pane out of a space just renames that space, so leave it alone.
+        let can_move_to_new_space = snapshot
+            .panes
+            .iter()
+            .filter(|pane| pane.workspace_id == workspace_id)
+            .count()
+            > 1
+            && self.supports_endpoint_method_name("pane.move");
         self.overlay = Some(ClientShellOverlay::ContextMenu(ClientContextMenuOverlay {
             target: ClientContextMenuTarget::Pane {
                 pane_id,
-                workspace_id: pane.workspace_id.clone(),
+                workspace_id,
                 source_pane_id,
                 has_manual_label: pane.label.is_some(),
                 right_click_passthrough: pane.right_click_passthrough,
+                can_move_to_new_space,
             },
             x,
             y,
@@ -198,6 +232,7 @@ impl ClientShellState {
             ClientContextMenuTarget::Tab {
                 tab_id,
                 workspace_id,
+                ..
             } => self.activate_tab_context_action(tab_id, workspace_id, action, outcome),
             ClientContextMenuTarget::Pane {
                 pane_id,
@@ -357,6 +392,18 @@ impl ClientShellState {
                     }));
                 }
             }
+            ClientContextMenuAction::MoveTabToNewSpace => {
+                self.push_endpoint_method(
+                    Method::TabMoveToWorkspace(crate::api::schema::TabMoveToWorkspaceParams {
+                        tab_id,
+                        destination: crate::api::schema::TabMoveDestination::NewWorkspace {
+                            label: None,
+                        },
+                        focus: true,
+                    }),
+                    outcome,
+                );
+            }
             ClientContextMenuAction::Close => {
                 self.push_endpoint_method(Method::TabClose(TabTarget { tab_id }), outcome);
             }
@@ -453,6 +500,17 @@ impl ClientShellState {
                     } else {
                         PaneRightClickTarget::Pane
                     },
+                }),
+                outcome,
+            ),
+            ClientContextMenuAction::MovePaneToNewSpace => self.push_endpoint_method(
+                Method::PaneMove(crate::api::schema::PaneMoveParams {
+                    pane_id,
+                    destination: crate::api::schema::PaneMoveDestination::NewWorkspace {
+                        label: None,
+                        tab_label: None,
+                    },
+                    focus: true,
                 }),
                 outcome,
             ),

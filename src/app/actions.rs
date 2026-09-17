@@ -715,6 +715,36 @@ impl AppState {
         }
     }
 
+    /// Point workspace-scoped pane references at the workspace that now owns these panes.
+    pub(crate) fn retarget_pane_workspace_references(
+        &mut self,
+        pane_ids: &[PaneId],
+        workspace_id: &str,
+    ) {
+        if let Some(focus) = self
+            .previous_pane_focus
+            .as_mut()
+            .filter(|focus| pane_ids.contains(&focus.pane_id))
+        {
+            focus.workspace_id = workspace_id.to_owned();
+        }
+        if let Some(target) = self
+            .toast
+            .as_mut()
+            .and_then(|toast| toast.target.as_mut())
+            .filter(|target| pane_ids.contains(&target.pane_id))
+        {
+            target.workspace_id = workspace_id.to_owned();
+        }
+        for notification in self
+            .pending_agent_notifications
+            .values_mut()
+            .filter(|notification| pane_ids.contains(&notification.pane_id))
+        {
+            notification.workspace_id = workspace_id.to_owned();
+        }
+    }
+
     pub(crate) fn remove_plugin_pane_records(
         &mut self,
         pane_ids: impl IntoIterator<Item = PaneId>,

@@ -523,3 +523,114 @@ fn close_confirmation_error_becomes_client_owned_overlay_and_stable_group_close(
             if params.workspace_id == "ws_1" && params.close_group
     ));
 }
+
+#[test]
+fn move_to_new_space_appears_only_when_the_space_would_survive() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+    state.compose(106, 20).expect("composed frame");
+
+    state.open_tab_context_menu("tab_1".into(), 0, 0);
+    assert!(!menu_actions(&state).contains(&ClientContextMenuAction::MoveTabToNewSpace));
+    state.open_pane_context_menu("pane_1".into(), 0, 0);
+    assert!(!menu_actions(&state).contains(&ClientContextMenuAction::MovePaneToNewSpace));
+
+    let mut snapshot = snapshot();
+    snapshot.tabs.push(ClientShellTab {
+        tab_id: "tab_2".into(),
+        workspace_id: "ws_1".into(),
+        number: 2,
+        label: "2".into(),
+        custom_label: false,
+        zoomed: false,
+        focused: false,
+        agent_status: AgentStatus::Idle,
+    });
+    snapshot.panes.push(ClientShellPane {
+        pane_id: "pane_2".into(),
+        workspace_id: "ws_1".into(),
+        tab_id: "tab_2".into(),
+        label: None,
+        cwd: Some("/repo".into()),
+        foreground_cwd: Some("/repo".into()),
+        focused: false,
+        right_click_passthrough: false,
+    });
+    state.set_snapshot(Box::new(snapshot));
+    state.compose(106, 20).expect("composed frame");
+
+    state.open_tab_context_menu("tab_1".into(), 0, 0);
+    let actions = menu_actions(&state);
+    assert!(actions.contains(&ClientContextMenuAction::MoveTabToNewSpace));
+    let index = actions
+        .iter()
+        .position(|action| action == &ClientContextMenuAction::MoveTabToNewSpace)
+        .expect("move to new space item");
+    let mut outcome = ClientShellInput::default();
+    state.activate_context_menu_item(index, &mut outcome);
+    let [_, ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
+        panic!("tab move should focus the tab and then use the endpoint API");
+    };
+    assert!(matches!(
+        &request.method,
+        crate::api::schema::Method::TabMoveToWorkspace(params)
+            if params.tab_id == "tab_1"
+                && params.focus
+                && matches!(
+                    params.destination,
+                    crate::api::schema::TabMoveDestination::NewWorkspace { label: None }
+                )
+    ));
+
+    state.open_pane_context_menu("pane_1".into(), 0, 0);
+    let actions = menu_actions(&state);
+    let index = actions
+        .iter()
+        .position(|action| action == &ClientContextMenuAction::MovePaneToNewSpace)
+        .expect("move pane to new space item");
+    let mut outcome = ClientShellInput::default();
+    state.activate_context_menu_item(index, &mut outcome);
+    let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
+        panic!("pane move should use the endpoint API");
+    };
+    assert!(matches!(
+        &request.method,
+        crate::api::schema::Method::PaneMove(params)
+            if params.pane_id == "pane_1"
+                && matches!(
+                    params.destination,
+                    crate::api::schema::PaneMoveDestination::NewWorkspace { .. }
+                )
+    ));
+}
+
+#[test]
+fn move_to_new_space_hides_when_the_server_does_not_advertise_it() {
+    let mut snapshot = snapshot();
+    snapshot.tabs.push(ClientShellTab {
+        tab_id: "tab_2".into(),
+        workspace_id: "ws_1".into(),
+        number: 2,
+        label: "2".into(),
+        custom_label: false,
+        zoomed: false,
+        focused: false,
+        agent_status: AgentStatus::Idle,
+    });
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot));
+    state.set_endpoint_methods(Some(vec!["tab.focus".into()]));
+
+    state.open_tab_context_menu("tab_1".into(), 0, 0);
+    assert!(!menu_actions(&state).contains(&ClientContextMenuAction::MoveTabToNewSpace));
+}
+
+fn menu_actions(state: &ClientShellState) -> Vec<ClientContextMenuAction> {
+    match state.overlay.as_ref() {
+        Some(ClientShellOverlay::ContextMenu(menu)) => {
+            menu.items().iter().map(|item| item.action).collect()
+        }
+        _ => panic!("context menu"),
+    }
+}

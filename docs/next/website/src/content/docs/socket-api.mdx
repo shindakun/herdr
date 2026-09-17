@@ -102,7 +102,7 @@ Raw socket method names use dot notation:
 | Session | `session.snapshot` |
 | Workspace | `workspace.create`, `workspace.list`, `workspace.get`, `workspace.focus`, `workspace.rename`, `workspace.move`, `workspace.move_block`, `workspace.report_metadata`, `workspace.close` |
 | Worktree | `worktree.list`, `worktree.create`, `worktree.open`, `worktree.remove` |
-| Tab | `tab.create`, `tab.list`, `tab.get`, `tab.focus`, `tab.rename`, `tab.move`, `tab.close` |
+| Tab | `tab.create`, `tab.list`, `tab.get`, `tab.focus`, `tab.rename`, `tab.move`, `tab.move_to_workspace`, `tab.close` |
 | Pane | `pane.split`, `pane.swap`, `pane.move`, `pane.zoom`, `pane.layout`, `pane.process_info`, `pane.neighbor`, `pane.edges`, `pane.focus_direction`, `pane.resize`, `pane.list`, `pane.current`, `pane.get`, `pane.rename`, `pane.send_text`, `pane.send_keys`, `pane.send_input`, `pane.read`, `pane.graphics.info`, `pane.graphics.set`, `pane.graphics.clear`, `pane.graphics.stream`, `pane.report_agent`, `pane.report_agent_session`, `pane.report_metadata`, `pane.clear_agent_authority`, `pane.release_agent`, `pane.close`, `pane.wait_for_output` |
 | Popup | `popup.close` |
 | Layout | `layout.export`, `layout.apply`, `layout.set_split_ratio` |
@@ -341,6 +341,29 @@ Cross-workspace moves keep the internal pane and terminal alive but assign a new
 public pane id in the destination workspace. Subscribers can listen for
 `pane.moved`; Herdr does not emit fake pane close/create events for the moved
 terminal process.
+
+`tab.move` reorders a tab inside its own workspace. `tab.move_to_workspace`
+moves the whole tab, with every pane in it, into another workspace or into a new
+one:
+
+```json
+{"id":"req_tab_to_new_space","method":"tab.move_to_workspace","params":{"tab_id":"w1:t2","destination":{"type":"new_workspace","label":"logs"},"focus":true}}
+{"id":"req_tab_to_space","method":"tab.move_to_workspace","params":{"tab_id":"w1:t2","destination":{"type":"workspace","workspace_id":"w2"},"focus":true}}
+```
+
+A new workspace is inserted directly after the source workspace and takes the
+tab's own name when no `label` is given. It never joins the source workspace's
+worktree group. Moving a workspace's only tab would leave that workspace empty,
+so it returns `changed: false` with `reason: "only_tab"`; naming the workspace
+the tab already belongs to returns `reason: "same_workspace"`.
+
+The response is `type: "tab_moved_to_workspace"` with `changed`, optional
+`reason`, `previous_workspace_id`, `previous_tab_id`, the moved `tab`, its
+`panes`, and an optional created workspace record. Every moved pane keeps its
+terminal but takes a new public pane id in the destination workspace, and the
+previous ids stay usable as aliases. Subscribers see `workspace.created` when a
+workspace is created, then `tab.created` for the tab at its new identity and
+`tab.closed` for the identity it left behind.
 
 `pane.zoom` toggles, enables, or disables zoom for the target pane's tab:
 
