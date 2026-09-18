@@ -1379,6 +1379,35 @@ fn dropping_a_tab_under_the_space_list_gives_it_a_new_space() {
 }
 
 #[test]
+fn another_endpoints_row_is_not_a_new_space_target() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot_with_second_tab_and_space()));
+    state.set_pane_surface(surface());
+    state.compose(106, 20).expect("two spaces");
+    let last_row = state
+        .hits
+        .workspaces
+        .iter()
+        .map(|hit| hit.rect.bottom())
+        .max()
+        .expect("space rows");
+    // Stand in for a remote endpoint's row rendered under the active endpoint's block.
+    state.hits.workspaces.push(WorkspaceHit {
+        rect: Rect::new(0, last_row, 25, 1),
+        endpoint_id: ClientEndpointId::Ssh(
+            crate::client::endpoint::ProfileId::parse("0123456789abcdef0123456789abcdef").unwrap(),
+        ),
+        workspace_id: "remote_1".into(),
+        indented: false,
+        group_toggle: None,
+    });
+
+    let release = drag_tab_to(&mut state, (2, last_row));
+
+    assert!(!moved_a_tab(&release));
+}
+
+#[test]
 fn a_collapsed_sidebar_takes_no_tab_drops() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot_with_second_tab_and_space()));

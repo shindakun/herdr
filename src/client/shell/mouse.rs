@@ -589,8 +589,16 @@ impl ClientShellState {
             .map(|hit| hit.rect.bottom())
             .max()
             .is_some_and(|bottom| point.1 >= bottom);
-        (below_last_row && super::contains(self.hits.workspace_body, point))
-            .then_some(ClientTabDropTarget::NewSpace)
+        // Another endpoint's row is not empty space, and its spaces are not ours to fill.
+        let over_another_endpoint_row = self
+            .hits
+            .workspaces
+            .iter()
+            .any(|hit| super::contains(hit.rect, point));
+        (below_last_row
+            && !over_another_endpoint_row
+            && super::contains(self.hits.workspace_body, point))
+        .then_some(ClientTabDropTarget::NewSpace)
     }
 
     fn workspace_drop_target_at(&self, point: (u16, u16)) -> Option<(Option<String>, u16)> {

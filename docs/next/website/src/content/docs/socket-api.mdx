@@ -351,8 +351,9 @@ one:
 {"id":"req_tab_to_space","method":"tab.move_to_workspace","params":{"tab_id":"w1:t2","destination":{"type":"workspace","workspace_id":"w2"},"focus":true}}
 ```
 
-A new workspace is inserted directly after the source workspace and takes the
-tab's own name when no `label` is given. It never joins the source workspace's
+A new workspace is inserted directly after the source workspace, or after that
+workspace's whole worktree group, and takes the tab's own name when no `label`
+is given. It never joins the source workspace's
 worktree group. Moving a workspace's only tab would leave that workspace empty,
 so it returns `changed: false` with `reason: "only_tab"`; naming the workspace
 the tab already belongs to returns `reason: "same_workspace"`.

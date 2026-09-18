@@ -301,7 +301,7 @@ impl App {
                     identity_cwd,
                     taken,
                 );
-                let insert_idx = source_ws_idx + 1;
+                let insert_idx = self.workspace_group_insert_index(source_ws_idx);
                 self.state.workspaces.insert(insert_idx, workspace);
                 if let Some(active) = self.state.active.filter(|active| *active >= insert_idx) {
                     self.state.active = Some(active + 1);
@@ -309,6 +309,7 @@ impl App {
                 if self.state.selected >= insert_idx {
                     self.state.selected += 1;
                 }
+                self.shift_runtime_workspace_indices(insert_idx);
                 (insert_idx, 0, true)
             }
         };
@@ -384,7 +385,6 @@ impl App {
                     tab,
                     panes,
                     created_workspace,
-                    closed_workspace_id: None,
                 }),
             },
         )
@@ -415,7 +415,6 @@ impl App {
                     tab,
                     panes,
                     created_workspace: None,
-                    closed_workspace_id: None,
                 }),
             },
         )
@@ -431,6 +430,34 @@ impl App {
             .into_iter()
             .filter_map(|pane_id| self.pane_info(ws_idx, pane_id))
             .collect()
+    }
+
+    /// Where a space promoted out of `ws_idx` belongs. The sidebar renders a worktree
+    /// group as one contiguous block, so landing inside that block would read as after
+    /// the whole group anyway.
+    fn workspace_group_insert_index(&self, ws_idx: usize) -> usize {
+        let Some(key) = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.worktree_space())
+            .map(|space| space.key.clone())
+        else {
+            return ws_idx + 1;
+        };
+        self.state
+            .workspaces
+            .iter()
+            .enumerate()
+            .filter(|(_, workspace)| {
+                workspace
+                    .worktree_space()
+                    .is_some_and(|space| space.key == key)
+            })
+            .map(|(idx, _)| idx + 1)
+            .max()
+            .unwrap_or(ws_idx + 1)
+            .max(ws_idx + 1)
     }
 
     fn tab_identity_cwd(&self, ws_idx: usize, tab_idx: usize) -> PathBuf {
@@ -982,6 +1009,73 @@ mod tests {
         assert!(app.state.workspaces[1].pane_state(focused_pane).is_some());
         // The recorded previous focus must still live in the workspace it names.
         app.state.assert_invariants_for_test();
+    }
+
+    #[test]
+    fn promoting_a_grouped_tab_lands_after_the_whole_worktree_group() {
+        fn membership(is_linked_worktree: bool) -> crate::workspace::WorktreeSpaceMembership {
+            crate::workspace::WorktreeSpaceMembership {
+                key: "repo-key".into(),
+                label: "herdr".into(),
+                repo_root: "/repo/herdr".into(),
+                checkout_path: "/repo/herdr".into(),
+                is_linked_worktree,
+            }
+        }
+
+        let event_hub = crate::api::EventHub::default();
+        let mut app = app_with_splittable_second_tab(event_hub);
+        app.state.workspaces.push(Workspace::test_new("child"));
+        app.state.workspaces.push(Workspace::test_new("unrelated"));
+        app.state.ensure_test_terminals();
+        app.state.workspaces[0].worktree_space = Some(membership(false));
+        app.state.workspaces[1].worktree_space = Some(membership(true));
+        let child_id = app.public_workspace_id(1);
+        let unrelated_id = app.public_workspace_id(2);
+        let moved_tab_id = app.public_tab_id(0, 1).unwrap();
+
+        app.handle_tab_move_to_workspace(
+            "req".into(),
+            TabMoveToWorkspaceParams {
+                tab_id: moved_tab_id,
+                destination: TabMoveDestination::NewWorkspace { label: None },
+                focus: false,
+            },
+        );
+
+        // The sidebar renders the group as one block, so the new space follows the block.
+        assert_eq!(app.public_workspace_id(1), child_id);
+        assert_eq!(app.public_workspace_id(3), unrelated_id);
+        assert!(app.state.workspaces[2].worktree_space.is_none());
+        app.state.assert_invariants_for_test();
+    }
+
+    #[test]
+    fn promoting_a_tab_keeps_runtime_workspace_indices_aligned() {
+        let event_hub = crate::api::EventHub::default();
+        let mut app = app_with_splittable_second_tab(event_hub);
+        app.state.workspaces.push(Workspace::test_new("later"));
+        app.state.ensure_test_terminals();
+        let later_pane = app.state.workspaces[1].tabs[0].root_pane;
+        app.last_focus = Some((1, later_pane));
+        let moved_tab_id = app.public_tab_id(0, 1).unwrap();
+
+        app.handle_tab_move_to_workspace(
+            "req".into(),
+            TabMoveToWorkspaceParams {
+                tab_id: moved_tab_id,
+                destination: TabMoveDestination::NewWorkspace { label: None },
+                focus: false,
+            },
+        );
+
+        // "later" shifted from index 1 to 2, and the stored focus index must follow it.
+        let (focus_ws_idx, focus_pane) = app.last_focus.expect("runtime focus");
+        assert_eq!(focus_pane, later_pane);
+        assert_eq!(focus_ws_idx, 2);
+        assert!(app.state.workspaces[focus_ws_idx]
+            .pane_state(later_pane)
+            .is_some());
     }
 
     #[test]

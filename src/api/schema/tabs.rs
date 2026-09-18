@@ -80,8 +80,6 @@ pub struct TabMoveToWorkspaceResult {
     pub panes: Vec<PaneInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_workspace: Option<WorkspaceInfo>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub closed_workspace_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

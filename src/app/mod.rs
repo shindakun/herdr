@@ -355,6 +355,21 @@ pub(crate) fn client_palette_for_appearance(
 }
 
 impl App {
+    /// Follow a workspace inserted at `insert_idx` in the runtime's index-keyed state.
+    /// `AppState::active` and `selected` are handled by the caller; these live on `App`.
+    pub(crate) fn shift_runtime_workspace_indices(&mut self, insert_idx: usize) {
+        for overlay in self.overlay_panes.values_mut() {
+            if overlay.ws_idx >= insert_idx {
+                overlay.ws_idx += 1;
+            }
+        }
+        if let Some((ws_idx, _)) = self.last_focus.as_mut() {
+            if *ws_idx >= insert_idx {
+                *ws_idx += 1;
+            }
+        }
+    }
+
     pub fn new(
         config: &Config,
         policy: AppPolicy,
