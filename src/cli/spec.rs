@@ -294,11 +294,11 @@ fn tab_command() -> Command {
                 .arg(required("label", "LABEL").num_args(1..)),
         )
         .subcommand(
-            Command::new("move-to-space")
-                .about("Move a tab into another space, or into a new one")
+            Command::new("move-to-workspace")
+                .about("Move a tab into another workspace, or into a new one")
                 .arg(required("tab_id", "TAB_ID"))
-                .arg(flag("new-space"))
-                .arg(option("space", "WORKSPACE_ID"))
+                .arg(flag("new-workspace"))
+                .arg(option("workspace", "WORKSPACE_ID"))
                 .arg(option("label", "TEXT"))
                 .arg(flag("focus"))
                 .arg(flag("no-focus")),

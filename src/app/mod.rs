@@ -355,19 +355,63 @@ pub(crate) fn client_palette_for_appearance(
 }
 
 impl App {
-    /// Follow a workspace inserted at `insert_idx` in the runtime's index-keyed state.
-    /// `AppState::active` and `selected` are handled by the caller; these live on `App`.
-    pub(crate) fn shift_runtime_workspace_indices(&mut self, insert_idx: usize) {
-        for overlay in self.overlay_panes.values_mut() {
-            if overlay.ws_idx >= insert_idx {
-                overlay.ws_idx += 1;
+    /// Re-resolve the runtime's index-keyed state from the panes it names. Workspace and
+    /// tab indices shift whenever a workspace is inserted or a tab is detached, so deriving
+    /// them from pane identity beats tracking every shift. `AppState::active` and `selected`
+    /// are the caller's job; these live on `App`.
+    pub(crate) fn resync_runtime_pane_indices(&mut self) {
+        let overlays = self
+            .overlay_panes
+            .keys()
+            .copied()
+            .filter_map(|pane_id| {
+                let (ws_idx, _) = self.find_pane(pane_id)?;
+                let tab_idx = self.state.workspaces[ws_idx].find_tab_index_for_pane(pane_id)?;
+                Some((pane_id, ws_idx, tab_idx))
+            })
+            .collect::<Vec<_>>();
+        for (pane_id, ws_idx, tab_idx) in overlays {
+            if let Some(overlay) = self.overlay_panes.get_mut(&pane_id) {
+                overlay.ws_idx = ws_idx;
+                overlay.tab_idx = tab_idx;
             }
         }
-        if let Some((ws_idx, _)) = self.last_focus.as_mut() {
-            if *ws_idx >= insert_idx {
-                *ws_idx += 1;
+        if let Some((ws_idx, pane_id)) = self.last_focus {
+            if let Some((current_ws_idx, _)) = self.find_pane(pane_id) {
+                if current_ws_idx != ws_idx {
+                    self.last_focus = Some((current_ws_idx, pane_id));
+                }
             }
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_track_overlay_pane(
+        &mut self,
+        pane_id: crate::layout::PaneId,
+        ws_idx: usize,
+        tab_idx: usize,
+    ) {
+        self.overlay_panes.insert(
+            pane_id,
+            OverlayPaneState {
+                ws_idx,
+                tab_idx,
+                previous_focus: pane_id,
+                previous_zoomed: false,
+                temp_files: Vec::new(),
+            },
+        );
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_overlay_indices(
+        &self,
+        pane_id: crate::layout::PaneId,
+    ) -> Option<(usize, usize)> {
+        self.overlay_panes
+            .get(&pane_id)
+            .map(|overlay| (overlay.ws_idx, overlay.tab_idx))
     }
 
     pub fn new(

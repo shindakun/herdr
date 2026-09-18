@@ -309,7 +309,6 @@ impl App {
                 if self.state.selected >= insert_idx {
                     self.state.selected += 1;
                 }
-                self.shift_runtime_workspace_indices(insert_idx);
                 (insert_idx, 0, true)
             }
         };
@@ -320,6 +319,11 @@ impl App {
         let target_workspace_id = self.public_workspace_id(target_ws_idx);
         self.state
             .retarget_pane_workspace_references(&pane_ids, &target_workspace_id);
+        // Detaching the tab shifted the source's later tabs, and inserting a space shifted
+        // every later workspace, so anything holding an index has to be re-resolved.
+        self.resync_runtime_pane_indices();
+        // Detaching the tab shifted the source's later tabs, and inserting a space shifted
+        // every later workspace, so anything holding an index has to be re-resolved.
         for pane_id in &pane_ids {
             self.state.remove_alias_shadowed_by_new_pane(*pane_id);
         }
@@ -1047,6 +1051,41 @@ mod tests {
         assert_eq!(app.public_workspace_id(1), child_id);
         assert_eq!(app.public_workspace_id(3), unrelated_id);
         assert!(app.state.workspaces[2].worktree_space.is_none());
+        app.state.assert_invariants_for_test();
+    }
+
+    #[test]
+    fn promoting_a_tab_follows_overlay_and_focus_bookkeeping() {
+        let event_hub = crate::api::EventHub::default();
+        let mut app = app_with_splittable_second_tab(event_hub);
+        // A third tab after the moved one, so the source's tab indices shift too.
+        app.state.workspaces[0].test_add_tab(Some("trailing"));
+        app.state.ensure_test_terminals();
+        let moved_pane = app.state.workspaces[0].tabs[1].layout.focused();
+        let trailing_pane = app.state.workspaces[0].tabs[2].root_pane;
+        app.test_track_overlay_pane(moved_pane, 0, 1);
+        app.test_track_overlay_pane(trailing_pane, 0, 2);
+        app.last_focus = Some((0, moved_pane));
+        let moved_tab_id = app.public_tab_id(0, 1).unwrap();
+
+        app.handle_tab_move_to_workspace(
+            "req".into(),
+            TabMoveToWorkspaceParams {
+                tab_id: moved_tab_id,
+                destination: TabMoveDestination::NewWorkspace { label: None },
+                focus: false,
+            },
+        );
+
+        // The moved overlay followed its pane into the promoted space.
+        let moved_overlay = app.test_overlay_indices(moved_pane).expect("moved overlay");
+        assert_eq!(moved_overlay, (1, 0));
+        // The trailing tab slid down one slot in the source space.
+        let trailing_overlay = app
+            .test_overlay_indices(trailing_pane)
+            .expect("trailing overlay");
+        assert_eq!(trailing_overlay, (0, 1));
+        assert_eq!(app.last_focus, Some((1, moved_pane)));
         app.state.assert_invariants_for_test();
     }
 

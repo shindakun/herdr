@@ -16,7 +16,7 @@ pub(super) fn run_tab_command(args: &[String]) -> std::io::Result<i32> {
         "get" => tab_get(&args[1..]),
         "focus" => tab_focus(&args[1..]),
         "rename" => tab_rename(&args[1..]),
-        "move-to-space" => tab_move_to_space(&args[1..]),
+        "move-to-workspace" => tab_move_to_workspace(&args[1..]),
         "close" => tab_close(&args[1..]),
         "help" | "--help" | "-h" => {
             print_tab_help();
@@ -164,8 +164,8 @@ fn tab_rename(args: &[String]) -> std::io::Result<i32> {
     })
 }
 
-fn tab_move_to_space(args: &[String]) -> std::io::Result<i32> {
-    match parse_tab_move_to_space_args(args) {
+fn tab_move_to_workspace(args: &[String]) -> std::io::Result<i32> {
+    match parse_tab_move_to_workspace_args(args) {
         Ok(params) => super::runtime::tab_move_to_workspace(params),
         Err(err) => {
             eprintln!("{err}");
@@ -174,11 +174,11 @@ fn tab_move_to_space(args: &[String]) -> std::io::Result<i32> {
     }
 }
 
-fn parse_tab_move_to_space_args(args: &[String]) -> Result<TabMoveToWorkspaceParams, String> {
+fn parse_tab_move_to_workspace_args(args: &[String]) -> Result<TabMoveToWorkspaceParams, String> {
     let Some(raw_tab_id) = args.first().filter(|arg| !arg.starts_with('-')) else {
-        return Err(tab_move_to_space_usage());
+        return Err(tab_move_to_workspace_usage());
     };
-    let mut new_space = false;
+    let mut new_workspace = false;
     let mut workspace_id = None;
     let mut label = None;
     let mut focus = true;
@@ -186,13 +186,13 @@ fn parse_tab_move_to_space_args(args: &[String]) -> Result<TabMoveToWorkspacePar
     let mut index = 1;
     while index < args.len() {
         match args[index].as_str() {
-            "--new-space" => {
-                new_space = true;
+            "--new-workspace" => {
+                new_workspace = true;
                 index += 1;
             }
-            "--space" => {
+            "--workspace" => {
                 let Some(value) = args.get(index + 1) else {
-                    return Err("missing value for --space".into());
+                    return Err("missing value for --workspace".into());
                 };
                 workspace_id = Some(super::normalize_workspace_id(value));
                 index += 2;
@@ -216,12 +216,12 @@ fn parse_tab_move_to_space_args(args: &[String]) -> Result<TabMoveToWorkspacePar
         }
     }
 
-    let destination = match (new_space, workspace_id) {
+    let destination = match (new_workspace, workspace_id) {
         (true, None) => TabMoveDestination::NewWorkspace { label },
         (false, Some(workspace_id)) if label.is_none() => {
             TabMoveDestination::Workspace { workspace_id }
         }
-        _ => return Err(tab_move_to_space_usage()),
+        _ => return Err(tab_move_to_workspace_usage()),
     };
 
     Ok(TabMoveToWorkspaceParams {
@@ -231,8 +231,8 @@ fn parse_tab_move_to_space_args(args: &[String]) -> Result<TabMoveToWorkspacePar
     })
 }
 
-fn tab_move_to_space_usage() -> String {
-    "usage: herdr tab move-to-space <tab_id> --new-space [--label TEXT] [--focus|--no-focus]\n       herdr tab move-to-space <tab_id> --space <workspace_id> [--focus|--no-focus]".into()
+fn tab_move_to_workspace_usage() -> String {
+    "usage: herdr tab move-to-workspace <tab_id> --new-workspace [--label TEXT] [--focus|--no-focus]\n       herdr tab move-to-workspace <tab_id> --workspace <workspace_id> [--focus|--no-focus]".into()
 }
 
 fn tab_close(args: &[String]) -> std::io::Result<i32> {
@@ -258,9 +258,11 @@ fn print_tab_help() {
     eprintln!("  herdr tab focus <tab_id>");
     eprintln!("  herdr tab rename <tab_id> <label>");
     eprintln!(
-        "  herdr tab move-to-space <tab_id> --new-space [--label TEXT] [--focus] [--no-focus]"
+        "  herdr tab move-to-workspace <tab_id> --new-workspace [--label TEXT] [--focus] [--no-focus]"
     );
-    eprintln!("  herdr tab move-to-space <tab_id> --space <workspace_id> [--focus] [--no-focus]");
+    eprintln!(
+        "  herdr tab move-to-workspace <tab_id> --workspace <workspace_id> [--focus] [--no-focus]"
+    );
     eprintln!("  herdr tab close <tab_id>");
 }
 
@@ -273,10 +275,14 @@ mod tests {
     }
 
     #[test]
-    fn parse_tab_move_to_space_args_promotes_a_tab_into_a_named_space() {
-        let params =
-            parse_tab_move_to_space_args(&args(&["issue:2", "--new-space", "--label", "logs"]))
-                .unwrap();
+    fn parse_tab_move_to_workspace_args_promotes_a_tab_into_a_named_space() {
+        let params = parse_tab_move_to_workspace_args(&args(&[
+            "issue:2",
+            "--new-workspace",
+            "--label",
+            "logs",
+        ]))
+        .unwrap();
 
         assert_eq!(params.tab_id, "issue:2");
         assert!(params.focus);
@@ -289,10 +295,14 @@ mod tests {
     }
 
     #[test]
-    fn parse_tab_move_to_space_args_targets_an_existing_space() {
-        let params =
-            parse_tab_move_to_space_args(&args(&["issue:2", "--space", "other", "--no-focus"]))
-                .unwrap();
+    fn parse_tab_move_to_workspace_args_targets_an_existing_space() {
+        let params = parse_tab_move_to_workspace_args(&args(&[
+            "issue:2",
+            "--workspace",
+            "other",
+            "--no-focus",
+        ]))
+        .unwrap();
 
         assert!(!params.focus);
         assert_eq!(
@@ -304,14 +314,14 @@ mod tests {
     }
 
     #[test]
-    fn parse_tab_move_to_space_args_rejects_ambiguous_or_missing_destinations() {
+    fn parse_tab_move_to_workspace_args_rejects_ambiguous_or_missing_destinations() {
         for arguments in [
             args(&["issue:2"]),
-            args(&["issue:2", "--new-space", "--space", "other"]),
-            args(&["issue:2", "--space", "other", "--label", "logs"]),
+            args(&["issue:2", "--new-workspace", "--workspace", "other"]),
+            args(&["issue:2", "--workspace", "other", "--label", "logs"]),
         ] {
-            let err = parse_tab_move_to_space_args(&arguments).unwrap_err();
-            assert!(err.contains("usage: herdr tab move-to-space"));
+            let err = parse_tab_move_to_workspace_args(&arguments).unwrap_err();
+            assert!(err.contains("usage: herdr tab move-to-workspace"));
         }
     }
 }
