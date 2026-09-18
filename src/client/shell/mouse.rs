@@ -570,15 +570,25 @@ impl ClientShellState {
         if super::contains(self.hits.new_workspace, point) {
             return Some(ClientTabDropTarget::NewSpace);
         }
-        self.hits
+        if let Some(hit) = self.hits.workspaces.iter().find(|hit| {
+            hit.endpoint_id == self.active_endpoint_id && super::contains(hit.rect, point)
+        }) {
+            // Its own row is not a target, because that move would do nothing.
+            return (hit.workspace_id != source_workspace_id)
+                .then(|| ClientTabDropTarget::Space(hit.workspace_id.clone()));
+        }
+        // Empty space under the list is the roomiest target on screen, and "below the
+        // spaces I have" is a fair way to ask for one more.
+        let below_last_row = self
+            .hits
             .workspaces
             .iter()
-            .find(|hit| {
-                hit.endpoint_id == self.active_endpoint_id
-                    && hit.workspace_id != source_workspace_id
-                    && super::contains(hit.rect, point)
-            })
-            .map(|hit| ClientTabDropTarget::Space(hit.workspace_id.clone()))
+            .filter(|hit| hit.endpoint_id == self.active_endpoint_id)
+            .map(|hit| hit.rect.bottom())
+            .max()
+            .is_some_and(|bottom| point.1 >= bottom);
+        (below_last_row && super::contains(self.hits.workspace_body, point))
+            .then_some(ClientTabDropTarget::NewSpace)
     }
 
     fn workspace_drop_target_at(&self, point: (u16, u16)) -> Option<(Option<String>, u16)> {

@@ -177,6 +177,18 @@ impl ClientShellState {
             },
             _ => (None, None, false),
         };
+        // A tab bound for a new space marks where that space would land, reusing the
+        // same indicator line a workspace drag draws.
+        let tab_drop_indicator_row = tab_drop_new_space
+            .then(|| {
+                self.hits
+                    .workspaces
+                    .iter()
+                    .filter(|hit| hit.endpoint_id == self.active_endpoint_id)
+                    .map(|hit| hit.rect.bottom())
+                    .max()
+            })
+            .flatten();
         let (dragged_workspace_id, workspace_drop_indicator_row) = match &self.chrome_drag {
             Some(ClientChromeDrag::Workspace {
                 source_workspace_id,
@@ -213,7 +225,8 @@ impl ClientShellState {
                     .filter(|_| valid_navigation_target),
                 reveal_navigation_workspace: &mut self.reveal_navigation_workspace,
                 dragged_workspace_id,
-                workspace_drop_indicator_row,
+                workspace_drop_indicator_row: workspace_drop_indicator_row
+                    .or(tab_drop_indicator_row),
                 tab_drop_space_id,
                 tab_drop_new_space,
             },

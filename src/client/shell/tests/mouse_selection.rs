@@ -1315,3 +1315,65 @@ fn moved_a_tab(outcome: &ClientShellInput) -> bool {
         )
     })
 }
+
+#[test]
+fn dropping_a_tab_under_the_space_list_gives_it_a_new_space() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot_with_second_tab_and_space()));
+    state.set_pane_surface(surface());
+    state.compose(106, 20).expect("two spaces");
+    let last_row = state
+        .hits
+        .workspaces
+        .iter()
+        .map(|hit| hit.rect.bottom())
+        .max()
+        .expect("space rows");
+    let empty = (state.hits.workspace_body.x + 2, last_row + 1);
+    assert!(empty.1 < state.hits.new_workspace.y);
+
+    let tab = state.hits.tabs[0].0;
+    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: tab.x + 1,
+        row: tab.y,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+        kind: MouseEventKind::Drag(MouseButton::Left),
+        column: empty.0,
+        row: empty.1,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    assert!(matches!(
+        state.chrome_drag,
+        Some(ClientChromeDrag::Tab {
+            target: Some(ClientTabDropTarget::NewSpace),
+            ..
+        })
+    ));
+    let frame = state.compose(106, 20).expect("new space indicator");
+    let indicator = frame
+        .cells
+        .chunks(frame.width as usize)
+        .nth(last_row as usize)
+        .expect("indicator row");
+    assert_eq!(indicator[state.hits.workspace_body.x as usize].symbol, "─");
+
+    let release =
+        state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: empty.0,
+            row: empty.1,
+            modifiers: KeyModifiers::empty(),
+        })]);
+    let [ClientShellAction::Endpoint { request, .. }] = &release.actions[..] else {
+        panic!("dropping under the list should use the endpoint API");
+    };
+    assert!(matches!(
+        &request.method,
+        crate::api::schema::Method::TabMoveToWorkspace(params)
+            if params.destination
+                == crate::api::schema::TabMoveDestination::NewWorkspace { label: None }
+    ));
+}
