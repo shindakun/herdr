@@ -562,7 +562,9 @@ impl ClientShellState {
         if let Some(index) = self.tab_drop_index_at(point) {
             return Some(ClientTabDropTarget::Reorder(index));
         }
-        if !self.supports_endpoint_method_name("tab.move_to_workspace")
+        // A collapsed sidebar draws no drop feedback, so it must not accept a drop.
+        if self.sidebar_collapsed
+            || !self.supports_endpoint_method_name("tab.move_to_workspace")
             || self.focused_tab_count() <= 1
         {
             return None;

@@ -1377,3 +1377,17 @@ fn dropping_a_tab_under_the_space_list_gives_it_a_new_space() {
                 == crate::api::schema::TabMoveDestination::NewWorkspace { label: None }
     ));
 }
+
+#[test]
+fn a_collapsed_sidebar_takes_no_tab_drops() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot_with_second_tab_and_space()));
+    state.set_pane_surface(surface());
+    state.compose(106, 20).expect("two spaces");
+    let other = state.hits.workspaces[1].rect;
+    state.sidebar_collapsed = true;
+
+    let release = drag_tab_to(&mut state, (other.x, other.y));
+
+    assert!(!moved_a_tab(&release));
+}

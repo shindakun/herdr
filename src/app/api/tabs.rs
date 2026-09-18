@@ -229,7 +229,11 @@ impl App {
 
         let destination_ws_idx = match &params.destination {
             TabMoveDestination::Workspace { workspace_id } => {
-                let Some(ws_idx) = self.parse_workspace_id(workspace_id) else {
+                // parse_workspace_id's numeric fallback does not bounds-check.
+                let Some(ws_idx) = self
+                    .parse_workspace_id(workspace_id)
+                    .filter(|ws_idx| self.state.workspaces.get(*ws_idx).is_some())
+                else {
                     return workspace_not_found(id, workspace_id);
                 };
                 Some(ws_idx)
@@ -783,6 +787,31 @@ mod tests {
         assert_eq!(result.reason, Some(TabMoveToWorkspaceReason::OnlyTab));
         assert_eq!(result.tab.tab_id, tab_id);
         assert_eq!(app.state.workspaces.len(), 1);
+        assert!(event_hub.events_after(0).is_empty());
+        app.state.assert_invariants_for_test();
+    }
+
+    #[test]
+    fn tab_move_rejects_a_workspace_id_that_is_out_of_range() {
+        let event_hub = crate::api::EventHub::default();
+        let mut app = app_with_splittable_second_tab(event_hub.clone());
+        let tab_id = app.public_tab_id(0, 1).unwrap();
+
+        let response = app.handle_tab_move_to_workspace(
+            "req".into(),
+            TabMoveToWorkspaceParams {
+                tab_id,
+                destination: TabMoveDestination::Workspace {
+                    workspace_id: "w_99".into(),
+                },
+                focus: true,
+            },
+        );
+
+        let error: crate::api::schema::ErrorResponse = serde_json::from_str(&response).unwrap();
+        assert_eq!(error.error.code, "workspace_not_found");
+        assert_eq!(app.state.workspaces.len(), 1);
+        assert_eq!(app.state.workspaces[0].tabs.len(), 2);
         assert!(event_hub.events_after(0).is_empty());
         app.state.assert_invariants_for_test();
     }

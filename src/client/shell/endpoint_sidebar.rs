@@ -462,6 +462,11 @@ pub(super) fn render_expanded(
                 if selected && palette.selection_bg == ratatui::style::Color::Reset {
                     buffer.set_style(nested, Style::default().bg(palette.active_row_bg));
                 }
+                if state.tab_drop_space_id == Some(workspace.workspace_id.as_str())
+                    && endpoint_active
+                {
+                    buffer.set_style(rect, Style::default().bg(palette.selection_bg));
+                }
                 if endpoint.status != ClientEndpointStatus::Online {
                     buffer.set_style(
                         rect,
@@ -512,7 +517,13 @@ pub(super) fn render_expanded(
             footer_y,
             workspace_area.width,
             &label,
-            Style::default().fg(palette.overlay0),
+            if state.tab_drop_new_space {
+                Style::default()
+                    .fg(palette.accent)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(palette.overlay0)
+            },
         );
         let attention = active_snapshot.is_some_and(super::global_menu::global_menu_attention);
         let width = if attention { 8 } else { 6 }.min(workspace_area.width);
