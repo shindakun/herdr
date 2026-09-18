@@ -322,8 +322,6 @@ impl App {
         // Detaching the tab shifted the source's later tabs, and inserting a space shifted
         // every later workspace, so anything holding an index has to be re-resolved.
         self.resync_runtime_pane_indices();
-        // Detaching the tab shifted the source's later tabs, and inserting a space shifted
-        // every later workspace, so anything holding an index has to be re-resolved.
         for pane_id in &pane_ids {
             self.state.remove_alias_shadowed_by_new_pane(*pane_id);
         }
